@@ -1,0 +1,31 @@
+# Data you may not redistribute (Zindi competition rules)
+data/raw/
+
+# Generated artifacts: rebuilt by the training scripts
+artifacts/models/
+*.joblib
+
+# Secrets: never committed
+.env
+*signing_key*
+
+# Runtime data
+*.db
+policies/
+backend/storage/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/settings.json

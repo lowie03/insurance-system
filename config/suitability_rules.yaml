@@ -1,0 +1,10 @@
+# SOFT rules: the product stays available, but its match score is multiplied by `factor`.
+version: suitability-v2
+source: illustrative
+
+rules:
+  - products: [HIN, HFM, HMC]
+    field: employer_hmo
+    value: true
+    factor: 0.3
+    note: "you already have an employer HMO"

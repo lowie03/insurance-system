@@ -1,0 +1,24 @@
+# HARD rules: if any rule fails, the product is removed and the reason is shown + logged.
+# Rules are checked in order; the first failure is reported.
+# Thresholds are ILLUSTRATIVE; a real deployment takes them from the insurer's underwriting guide.
+version: eligibility-v3
+source: illustrative
+
+rules:
+  MTP:
+    - {field: owns_vehicle, op: "==", value: true, reason: "requires a vehicle"}
+  MCP:
+    - {field: owns_vehicle, op: "==", value: true, reason: "requires a vehicle"}
+    - {field: vehicle_year, op: ">=", value: 2008, reason: "comprehensive cover needs a vehicle made in 2008 or later"}
+  HIN:
+    - {field: age, op: "<=", value: 70, reason: "individual health cover is for ages 70 and below"}
+  HFM:
+    - {field: dependents, op: ">=", value: 1, reason: "family cover needs at least one dependent"}
+  TRV:
+    - {field: foreign_trips_per_year, op: ">=", value: 1, reason: "only relevant if you travel abroad"}
+    - {field: age, op: "<=", value: 75, reason: "travel cover is for ages 75 and below"}
+  HCN:
+    - {field: home_status, op: "in", value: [Owner, Renter], reason: "needs a home you own or rent"}
+  SHP:
+    - {field: runs_shop, op: "==", value: true, reason: "only for traders and business owners"}
+  HMC: []

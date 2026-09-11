@@ -1,0 +1,12 @@
+version: recommender-v3
+
+top_k: 3
+min_match: 0.30          # below this, a human broker reviews the case
+
+# Micro Health is a fallback tier: offered only when no full health plan survives
+# eligibility + affordability. The model has never seen it, so it borrows the
+# model's health-need signal (sum of the full health products' scores).
+fallback_tiers:
+  HMC:
+    replaces: [HIN, HFM]
+    note: "basic plan: primary and general-hospital care; narrower than full private health cover"

@@ -1,0 +1,9 @@
+version: payments-v1
+source: illustrative
+
+plans:
+  annual: {payments: 1, loading: 0.00}
+  monthly: {payments: 12, loading: 0.05}   # insurers charge extra for spreading payments
+
+cash_flow:
+  max_single_payment_share_of_monthly_income: 0.20   # one payment shouldn't exceed 20% of a month's income
