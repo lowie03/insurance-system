@@ -19,7 +19,10 @@ router = APIRouter(prefix="/policies", tags=["policies"])
 @router.post("", response_model=PolicyOut, status_code=201)
 def post_policy(policy_in: PolicyIn, db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
                 bundle: dict = Depends(get_bundle)):
-    """Issue a policy from a saved quote. Payment is SIMULATED for now: any payment_reference is accepted."""
+    """SIMULATED-payment issuance, for tests and offline demos only. With PAYMENT_MODE=paystack this is
+    switched off: policies are issued only after Paystack confirms payment (see /payments)."""
+    if settings.payment_mode != "simulated":
+        raise HTTPException(403, "direct issuance is disabled; pay via POST /payments/initialize")
     try:
         policy = issue_policy(db, settings, bundle, policy_in.quote_id, policy_in.product_code,
                               policy_in.payment_plan, policy_in.payment_reference)

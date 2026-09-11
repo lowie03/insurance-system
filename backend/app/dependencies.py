@@ -22,3 +22,6 @@ def get_db(request: Request) -> Iterator[Session]:
         yield db
     finally:
         db.close()
+        
+def get_paystack(request: Request):
+    return request.app.state.paystack

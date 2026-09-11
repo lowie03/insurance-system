@@ -58,3 +58,22 @@ class AuditLog(Base):
     policy_number: Mapped[str | None] = mapped_column(String(32), index=True)
     payload: Mapped[dict] = mapped_column(JSON)
     created_at: Mapped[str] = mapped_column(String(32))
+    
+class Payment(Base):
+    """One Paystack transaction. A policy is issued only after this is confirmed as paid."""
+    __tablename__ = "payments"
+
+    reference: Mapped[str] = mapped_column(String(64), primary_key=True)     # we generate it, Paystack echoes it
+    quote_id: Mapped[str] = mapped_column(ForeignKey("quotes.id"), index=True)
+    product_code: Mapped[str] = mapped_column(String(8))
+    payment_plan: Mapped[str] = mapped_column(String(16))
+    amount_kobo: Mapped[int] = mapped_column(Integer)
+    email: Mapped[str] = mapped_column(String(200))
+    # initialized -> issued | failed | paid_not_issued (customer paid but the policy couldn't be issued:
+    # a broker must resolve it, e.g. refund)
+    status: Mapped[str] = mapped_column(String(20), default="initialized")
+    status_detail: Mapped[str | None] = mapped_column(String(300))
+    authorization_url: Mapped[str | None] = mapped_column(String(300))
+    policy_number: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[str] = mapped_column(String(32))
+    confirmed_at: Mapped[str | None] = mapped_column(String(32))

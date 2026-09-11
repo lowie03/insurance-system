@@ -147,3 +147,25 @@ class VerificationOut(BaseModel):
     status: str
     product_name: str | None = None
     valid_until: str | None = None
+    
+class PaymentInitIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    quote_id: str
+    product_code: str
+    payment_plan: Literal["annual", "monthly"] | None = None
+    email: str | None = Field(default=None, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class PaymentInitOut(BaseModel):
+    reference: str
+    authorization_url: str      # send the customer here to pay
+    amount_ngn: float           # the FIRST payment: the whole premium (annual) or one instalment (monthly)
+    payment_plan: str
+
+
+class PaymentStatusOut(BaseModel):
+    reference: str
+    status: Literal["initialized", "issued", "failed", "paid_not_issued"]
+    message: str
+    policy: PolicyOut | None = None

@@ -33,27 +33,43 @@ def verify_url(settings: Settings, record: dict) -> str:
     return f"{settings.verify_base_url}/{record['policy_number']}?s={record['signature']}"
 
 
-def issue_policy(db: Session, settings: Settings, bundle: dict, quote_id: str, product_code: str,
-                 payment_plan: str | None, payment_reference: str) -> Policy:
-    tz = ZoneInfo(settings.timezone)
-    now = datetime.now(tz)
-
-    # 1-2. Load the quote; idempotency check
+def prepare_selection(db: Session, bundle: dict, settings: Settings, quote_id: str, product_code: str,
+                      payment_plan: str | None, check_expiry: bool = True):
+    """Load the saved quote and re-validate the chosen product + plan against the CURRENT rules and prices.
+    Used both before taking payment and again before issuing. Returns (quote, profile, result, rec, option)."""
     quote = repository.get_quote(db, quote_id)
     if quote is None:
+        raise QuoteNotFound(quote_id)
+    if check_expiry and datetime.fromisoformat(quote.expires_at) < datetime.now(ZoneInfo(settings.timezone)):
+        raise QuoteExpired(quote_id)
+    profile = {**quote.profile, "customer_id": quote.customer_id}
+    result = recommend(profile, bundle, top_k=100)             # every candidate, not just the top 3
+    rec, option = select_recommendation(result, product_code, payment_plan)
+    return quote, profile, result, rec, option
+
+
+def issue_policy(db: Session, settings: Settings, bundle: dict, quote_id: str, product_code: str,
+                 payment_plan: str | None, payment_reference: str, check_expiry: bool = True,
+                 expected_payment_ngn: float | None = None) -> Policy:
+    """check_expiry=False is used after a CONFIRMED payment that started while the quote was still valid.
+    expected_payment_ngn guards against prices changing between payment and issuance."""
+    now = datetime.now(ZoneInfo(settings.timezone))
+
+    # 1-2. Load the quote; idempotency check (before expiry: a retried request must get its policy back)
+    if repository.get_quote(db, quote_id) is None:
         raise QuoteNotFound(quote_id)
     existing = repository.get_policy_by_payment_reference(db, payment_reference)
     if existing is not None:
         if existing.quote_id != quote_id or existing.product_code != product_code:
             raise IssuanceError("this payment reference was already used for a different policy")
         return existing                        # same request retried (e.g. a double-click): same policy back
-    if datetime.fromisoformat(quote.expires_at) < now:
-        raise QuoteExpired(quote_id)
 
-    # 3. Re-validate against the CURRENT rules and prices
-    profile = {**quote.profile, "customer_id": quote.customer_id}
-    result = recommend(profile, bundle, top_k=100)             # every candidate, not just the top 3
-    rec, option = select_recommendation(result, product_code, payment_plan)
+    # 3. Re-validate
+    quote, profile, result, rec, option = prepare_selection(db, bundle, settings, quote_id, product_code,
+                                                            payment_plan, check_expiry)
+    if expected_payment_ngn is not None and option["payment_ngn"] != expected_payment_ngn:
+        raise IssuanceError(f"the price changed since payment started "
+                            f"(paid ₦{expected_payment_ngn:,.0f}, now ₦{option['payment_ngn']:,.0f})")
 
     # 4. One transaction
     pdf_path: Path | None = None

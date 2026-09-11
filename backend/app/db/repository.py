@@ -2,7 +2,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.app.db.models import AuditLog, Policy, Quote
+from backend.app.db.models import AuditLog, Payment, Policy, Quote
 
 
 def get_quote(db: Session, quote_id: str) -> Quote | None:
@@ -21,3 +21,6 @@ def log_event(db: Session, event: str, payload: dict, created_at: str,
               quote_id: str | None = None, policy_number: str | None = None) -> None:
     db.add(AuditLog(event=event, quote_id=quote_id, policy_number=policy_number,
                     payload=payload, created_at=created_at))
+    
+def get_payment(db: Session, reference: str) -> Payment | None:
+    return db.get(Payment, reference)

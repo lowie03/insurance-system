@@ -11,7 +11,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.db.session import Base, make_session_factory
-from backend.app.routes import policies, quotes, verify
+from backend.app.routes import payments, policies, quotes, verify
+from backend.app.services.paystack import PaystackClient
 from backend.app.settings import Settings
 from insurance_core import config
 from insurance_core.model_io import load_bundle
@@ -29,8 +30,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine, app.state.session_factory = make_session_factory(settings.database_url)
         Base.metadata.create_all(engine)        # dev convenience; Alembic migrations replace this later
         settings.pdf_storage_dir.mkdir(parents=True, exist_ok=True)
+        paystack = (PaystackClient(settings.paystack_secret_key, settings.paystack_base_url)
+                    if settings.payment_mode == "paystack" else None)
+        app.state.paystack = paystack
         yield
         engine.dispose()
+        if paystack is not None:
+            paystack.close()                    # close the client WE created (tests may swap in a fake)
 
     app = FastAPI(title="Insurance Recommendation & Issuance API", version="0.1.0", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=settings.frontend_origins,
@@ -47,9 +53,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health", tags=["system"])
     def health():
         return {"status": "ok", "model_version": app.state.bundle["model_version"],
-                "config_versions": config.versions()}
+                "payment_mode": settings.payment_mode, "config_versions": config.versions()}
 
     app.include_router(quotes.router)
     app.include_router(policies.router)
     app.include_router(verify.router)
+    app.include_router(payments.router)
     return app

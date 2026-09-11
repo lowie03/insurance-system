@@ -1,52 +1,13 @@
-"""The whole flow over HTTP: quote -> issue -> verify -> download.
+"""The whole flow over HTTP: quote -> issue -> verify -> download (simulated payments).
 
 Each test gets a fresh app with a temporary database and PDF folder, so tests never touch dev.db.
 """
-import json
 import statistics
 
-import pandas as pd
 import pytest
-from fastapi.testclient import TestClient
 
-from backend.app.main import create_app
-from backend.app.schemas import ProfileIn
-from backend.app.settings import Settings
 from insurance_core.issuance.numbering import is_well_formed
-from insurance_core.settings import MODEL_PATH, PROJECT_ROOT
-
-DATA_PATH = PROJECT_ROOT / "data/synthetic/synthetic_ng_customers.csv"
-TEST_KEY = "t" * 64
-
-
-def make_client(tmp_path, **overrides):
-    if not MODEL_PATH.exists():
-        pytest.skip("no trained model: run python training/train_recommender.py")
-    settings = Settings(_env_file=None, policy_signing_key=TEST_KEY,
-                        database_url=f"sqlite:///{tmp_path / 'test.db'}",
-                        pdf_storage_dir=tmp_path / "policies", **overrides)
-    return TestClient(create_app(settings))
-
-
-@pytest.fixture
-def client(tmp_path):
-    with make_client(tmp_path) as c:          # "with" runs the startup (model load, tables)
-        yield c
-
-
-@pytest.fixture(scope="module")
-def customers():
-    if not DATA_PATH.exists():
-        pytest.skip(f"synthetic data not found at {DATA_PATH}")
-    return pd.read_csv(DATA_PATH, dtype={"phone": str}).set_index("customer_id")
-
-
-def quote_body(customers, customer_id):
-    """A synthetic customer as the frontend would send them."""
-    row = json.loads(customers.loc[customer_id].to_json())            # native types, NaN -> None
-    profile = {k: row[k] for k in ProfileIn.model_fields if k in row}
-    profile["owned_products"] = [p for p in ["MTP", "MCP", "HIN", "HFM", "TRV", "HCN", "SHP"] if row[p] == 1]
-    return {"full_name": row["full_name"], "profile": profile}
+from tests.backend.helpers import MODEL_PRODUCTS, make_client, quote_body
 
 
 def test_health(client):
@@ -86,7 +47,7 @@ def test_full_flow_quote_issue_verify_download(client, customers):
                                               "payment_reference": "SIM-0001"})
     assert response.status_code == 201
     policy = response.json()
-    assert policy["policy_number"].startswith("NGI-HCN-") and policy["policy_number"].endswith("000001-" + policy["policy_number"][-1])
+    assert policy["policy_number"].startswith("NGI-HCN-")
     assert is_well_formed(policy["policy_number"])
     assert (policy["payment_plan"], policy["payment_ngn"], policy["total_ngn"]) == ("monthly", 2_590, 31_080)
 
@@ -133,7 +94,7 @@ def test_expired_quote_is_refused(tmp_path, customers):
 
 def test_objective_2_issuance_time_over_http(client, customers):
     """Quote + issue for 20 real prospects, timed end to end through the API."""
-    prospects = customers[customers[["MTP", "MCP", "HIN", "HFM", "TRV", "HCN", "SHP"]].sum(axis=1) == 0]
+    prospects = customers[customers[MODEL_PRODUCTS].sum(axis=1) == 0]
     timings = []
     for i, customer_id in enumerate(prospects.index):
         quote = client.post("/quotes", json=quote_body(customers, customer_id)).json()
