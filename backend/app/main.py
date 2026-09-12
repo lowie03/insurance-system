@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.db.session import Base, make_session_factory
-from backend.app.routes import payments, policies, quotes, verify
+from backend.app.routes import broker, payments, policies, quotes, verify
 from backend.app.services.paystack import PaystackClient
 from backend.app.settings import Settings
 from insurance_core import config
@@ -57,6 +57,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(quotes.router)
     app.include_router(policies.router)
+    if settings.payment_mode == "simulated":
+        app.include_router(policies.simulated_router)
     app.include_router(verify.router)
     app.include_router(payments.router)
+    app.include_router(broker.router)
     return app

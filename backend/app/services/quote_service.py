@@ -30,6 +30,7 @@ def create_quote(db: Session, settings: Settings, bundle: dict, quote_in: QuoteI
         phone=quote_in.phone,
         profile=profile,
         result=result,
+        refer_reason=result["refer_reason"],
         created_at=now.isoformat(timespec="seconds"),
         expires_at=(now + timedelta(hours=settings.quote_valid_hours)).isoformat(timespec="seconds"),
     )

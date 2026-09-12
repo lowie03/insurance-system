@@ -1,8 +1,9 @@
-version: pricing-v2
+version: pricing-v3
 currency: NGN
 
 affordability:
   max_share_of_annual_income: 0.05     # annual premium must be <= 5% of yearly income
+  max_total_share_of_annual_income: 0.10   # a WHOLE basket's combined cost must be <= 10% of yearly income
   source: illustrative
 
 compulsory_products: [MTP]             # legally required: never hidden for affordability

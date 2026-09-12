@@ -5,7 +5,7 @@ import yaml
 
 from insurance_core.settings import CONFIG_DIR
 
-CONFIG_FILES = ["eligibility_rules", "suitability_rules", "pricing", "payment_plans", "recommender"]
+CONFIG_FILES = ["eligibility_rules", "suitability_rules", "pricing", "payment_plans", "recommender", "basket"]
 
 
 @lru_cache(maxsize=None)

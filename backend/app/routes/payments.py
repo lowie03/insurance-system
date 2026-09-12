@@ -6,13 +6,15 @@ from starlette.concurrency import run_in_threadpool
 
 from backend.app.db import repository
 from backend.app.dependencies import get_bundle, get_db, get_paystack, get_settings
-from backend.app.routes.presenters import policy_out
+from backend.app.routes.presenters import basket_out, policy_out
 from backend.app.schemas import PaymentInitIn, PaymentInitOut, PaymentStatusOut
+from backend.app.services.duplicate_check import DuplicateProductError
 from backend.app.services.issuance_service import QuoteExpired, QuoteNotFound
 from backend.app.services.payment_service import (PaymentNotFound, PaymentSetupError, confirm_payment,
                                                   initialize_payment)
 from backend.app.services.paystack import PaystackError, webhook_signature_is_valid
 from backend.app.settings import Settings
+from insurance_core.basket import BasketError
 from insurance_core.issuance.policy import IssuanceError
 
 router = APIRouter(prefix="/payments", tags=["payments"])
@@ -23,33 +25,37 @@ STATUS_MESSAGES = {
     "failed": "Payment could not be accepted. You have not been issued a policy.",
     "paid_not_issued": "Payment received, but the policy could not be issued automatically. "
                        "A broker will contact you to resolve this.",
+    "abandoned": "This payment was superseded by a later request for the same quote.",
 }
 
 
 def _status_out(db: Session, settings: Settings, payment) -> PaymentStatusOut:
-    policy = repository.get_policy_by_number(db, payment.policy_number) if payment.policy_number else None
+    policies = repository.get_policies_by_payment_reference(db, payment.reference)
     return PaymentStatusOut(reference=payment.reference, status=payment.status,
                             message=STATUS_MESSAGES[payment.status],
-                            policy=policy_out(policy, settings) if policy else None)
+                            policies=[policy_out(p, settings) for p in policies])
 
 
 @router.post("/initialize", response_model=PaymentInitOut, status_code=201)
 def post_initialize(body: PaymentInitIn, db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
                     bundle: dict = Depends(get_bundle), paystack=Depends(get_paystack)):
-    """Start paying for one product from a quote. Returns Paystack's checkout link."""
+    """Start paying for a whole basket from a quote, in ONE combined Paystack charge."""
+    items = [item.model_dump() for item in body.items]
     try:
-        payment = initialize_payment(db, settings, bundle, paystack, body.quote_id, body.product_code,
-                                     body.payment_plan, body.email)
+        payment, basket = initialize_payment(db, settings, bundle, paystack, body.quote_id, items, body.email)
     except QuoteNotFound:
         raise HTTPException(404, "quote not found")
     except QuoteExpired:
         raise HTTPException(410, "this quote has expired; please request a new one")
-    except (IssuanceError, PaymentSetupError) as e:
+    except DuplicateProductError as e:
+        raise HTTPException(409, str(e))
+    except (IssuanceError, BasketError, PaymentSetupError) as e:
         raise HTTPException(422, str(e))
     except PaystackError as e:
         raise HTTPException(502, f"payment provider error: {e}")
     return PaymentInitOut(reference=payment.reference, authorization_url=payment.authorization_url,
-                          amount_ngn=payment.amount_kobo / 100, payment_plan=payment.payment_plan)
+                          amount_ngn=payment.amount_kobo / 100, **basket_out(basket).model_dump(
+                              exclude={"budget_ngn", "notes", "first_payment_ngn"}))
 
 
 def _confirm(db, settings, bundle, paystack, reference) -> PaymentStatusOut:

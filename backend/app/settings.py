@@ -28,6 +28,19 @@ class Settings(BaseSettings):
     paystack_callback_url: str | None = None                  # default: {api_base_url}/payments/callback
     allow_live_keys: bool = False                             # prototype: refuse to move real money
 
+    # Brokers: a single shared token (no per-broker accounts yet -- see docs/assumptions.md).
+    # Not required to start the app; only checked when a /broker route is actually called, and
+    # since no correct token can ever match an unset one, leaving it unset just means every
+    # broker route refuses everyone (safe default, not a startup error).
+    broker_api_token: str | None = None
+
+    @field_validator("broker_api_token")
+    @classmethod
+    def broker_token_must_be_long_enough(cls, value: str | None) -> str | None:
+        if value is not None and len(value) < 32:
+            raise ValueError("BROKER_API_TOKEN must be at least 32 characters when set")
+        return value
+
     @field_validator("policy_signing_key")
     @classmethod
     def key_must_be_long(cls, value: str) -> str:

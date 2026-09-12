@@ -71,7 +71,7 @@ def test_owned_products_are_never_recommended(bundle, customers):
 def test_result_records_versions_for_the_audit_log(bundle, customers):
     result = recommend(profile(customers, "NG-SYN-00021"), bundle)
     assert result["model_version"] == "ng_recommender_v1"
-    assert result["config_versions"]["pricing"] == "pricing-v2"
+    assert result["config_versions"]["pricing"] == "pricing-v3"
 
 
 def test_works_with_api_style_missing_values(bundle, customers):

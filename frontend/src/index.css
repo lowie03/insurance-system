@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+/* Design tokens. Tailwind v4 reads @theme and generates utilities from it:
+   --color-palm-700 becomes bg-palm-700, text-palm-700, border-palm-700, and so on. */
+@theme {
+  --color-palm-900: #06241F;
+  --color-palm-700: #0C3B36;
+  --color-palm-500: #1C6B5F;
+  --color-palm-100: #D6E5E0;
+
+  --color-paper: #F7F4EE;
+  --color-paper-dim: #EDE7DC;
+
+  --color-ochre-500: #E8A33D;
+  --color-ochre-600: #C9821C;
+  --color-ochre-100: #FBEBCF;
+
+  --color-clay-600: #B23A2F;
+  --color-clay-100: #F6DFDB;
+
+  --color-ink: #1A1614;
+  --color-ink-soft: #5C544E;
+
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+    /* Tabular figures: every amount lines up in a column, like a ledger. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Keyboard focus must always be visible, including for people using a keyboard on mobile. */
+  :focus-visible { @apply outline-2 outline-offset-2 outline-ochre-600; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+@layer components {
+  /* A ledger row: label on the left, amount hard-right, dotted rule between them. */
+  .ledger-row { @apply flex items-baseline gap-3 py-2; }
+  .ledger-row > :first-child { @apply shrink; }
+  .ledger-row > .ledger-fill { @apply grow border-b border-dotted border-ink/25 translate-y-[-0.25rem]; }
+  .ledger-row > :last-child { @apply shrink-0 tabular-nums; }
+}

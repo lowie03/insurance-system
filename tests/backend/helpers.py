@@ -11,6 +11,7 @@ from insurance_core.settings import MODEL_PATH, PROJECT_ROOT
 
 DATA_PATH = PROJECT_ROOT / "data/synthetic/synthetic_ng_customers.csv"
 TEST_KEY = "t" * 64
+BROKER_TEST_TOKEN = "b" * 40
 MODEL_PRODUCTS = ["MTP", "MCP", "HIN", "HFM", "TRV", "HCN", "SHP"]
 
 
@@ -18,7 +19,7 @@ def make_client(tmp_path, **overrides) -> TestClient:
     """A fresh app with its own temporary database and PDF folder. Simulated payments unless overridden."""
     if not MODEL_PATH.exists():
         pytest.skip("no trained model: run python training/train_recommender.py")
-    settings = Settings(**{"_env_file": None, "policy_signing_key": TEST_KEY,
+    settings = Settings(**{"_env_file": None, "policy_signing_key": TEST_KEY, "broker_api_token": BROKER_TEST_TOKEN,
                            "database_url": f"sqlite:///{tmp_path / 'test.db'}",
                            "pdf_storage_dir": tmp_path / "policies",
                            "payment_mode": "simulated", **overrides})

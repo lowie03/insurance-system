@@ -1,7 +1,7 @@
 """The exact shape of every request and response. FastAPI validates requests against these
 before any of our code runs, and rejects bad input with a clear 422 error."""
 from datetime import date
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -114,15 +114,50 @@ class QuoteOut(BaseModel):
     refer_reason: str | None
 
 
+class BasketItemIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_code: str
+    payment_plan: Literal["annual", "monthly"] | None = None   # None -> insurance_core picks one
+
+
+class BasketPreviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[BasketItemIn] = Field(min_length=1)
+
+
 class PolicyIn(BaseModel):
+    """SIMULATED-payment issuance (see routes/policies.py): accepts the same basket shape as
+    real payments, so tests and demos exercise the exact same validate_basket() path."""
     model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
-        {"quote_id": "paste-the-quote_id-here", "product_code": "HCN", "payment_reference": "SIM-TEST-1"}
+        {"quote_id": "paste-the-quote_id-here", "items": [{"product_code": "HCN"}],
+         "payment_reference": "SIM-TEST-1"}
     ]})
 
     quote_id: str
-    product_code: str
+    items: list[BasketItemIn] = Field(min_length=1)
     payment_reference: str
-    payment_plan: str | None = None    # None -> issuance picks the quote's suggested_plan
+
+
+class BasketLineOut(BaseModel):
+    product: str
+    product_name: str
+    premium_ngn: float
+    breakdown: list[BreakdownStep]
+    payment_plan: str
+    payment_ngn: float          # this line's first payment
+    total_ngn: float            # this line's total cost over the year
+    notes: list[str]
+
+
+class BasketOut(BaseModel):
+    lines: list[BasketLineOut]
+    first_payment_ngn: float
+    total_annual_ngn: float
+    budget_ngn: float | None
+    budget_remaining_ngn: float | None
+    notes: list[str]
 
 
 class PolicyOut(BaseModel):
@@ -152,20 +187,97 @@ class PaymentInitIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     quote_id: str
-    product_code: str
-    payment_plan: Literal["annual", "monthly"] | None = None
+    items: list[BasketItemIn] = Field(min_length=1)
     email: str | None = Field(default=None, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class PaymentInitOut(BaseModel):
     reference: str
     authorization_url: str      # send the customer here to pay
-    amount_ngn: float           # the FIRST payment: the whole premium (annual) or one instalment (monthly)
-    payment_plan: str
+    amount_ngn: float           # the FIRST payment: the sum of every line's first payment
+    lines: list[BasketLineOut]
+    total_annual_ngn: float
+    budget_remaining_ngn: float | None
 
 
 class PaymentStatusOut(BaseModel):
     reference: str
-    status: Literal["initialized", "issued", "failed", "paid_not_issued"]
+    status: Literal["initialized", "issued", "failed", "paid_not_issued", "abandoned"]
     message: str
-    policy: PolicyOut | None = None
+    policies: list[PolicyOut] = []
+
+
+# --- Broker queue ---------------------------------------------------------------------------
+
+class BrokerLineOut(BaseModel):
+    product_code: str
+    product_name: str
+    payment_plan: str
+    payment_ngn: float
+    total_ngn: float
+
+
+class ReferralQueueItem(BaseModel):
+    kind: Literal["referral"] = "referral"
+    quote_id: str
+    created_at: str
+    refer_reason: str
+    recommendations: list[RecommendationOut]
+    excluded: list[ExclusionOut]
+
+
+class StuckPaymentQueueItem(BaseModel):
+    kind: Literal["stuck_payment"] = "stuck_payment"
+    reference: str
+    created_at: str
+    amount_ngn: float
+    reason: str | None
+    lines: list[BrokerLineOut]
+
+
+class FailedPaymentQueueItem(BaseModel):
+    kind: Literal["failed_payment"] = "failed_payment"
+    reference: str
+    created_at: str
+    amount_ngn: float
+    reason: str | None
+    lines: list[BrokerLineOut]
+
+
+QueueItemOut = Annotated[ReferralQueueItem | StuckPaymentQueueItem | FailedPaymentQueueItem,
+                        Field(discriminator="kind")]
+
+
+class QueueOut(BaseModel):
+    items: list[QueueItemOut]
+    has_more: bool
+
+
+class ReferralResolveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["contacted", "advised_subsidy", "no_action"]
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class PaymentResolveIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: Literal["refunded", "issued_manually", "no_action"]
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class PolicyCancelIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=300)
+    note: str = Field(min_length=1, max_length=1000)
+
+
+class BrokerActionOut(BaseModel):
+    status: Literal["resolved", "cancelled"]
+    outcome: str | None = None
+    reason: str | None = None
+    note: str
+    resolved_at: str
+    message: str

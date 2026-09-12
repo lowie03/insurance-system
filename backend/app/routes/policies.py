@@ -8,31 +8,38 @@ from backend.app.db import repository
 from backend.app.dependencies import get_bundle, get_db, get_settings
 from backend.app.routes.presenters import policy_out
 from backend.app.schemas import PolicyIn, PolicyOut
-from backend.app.services.issuance_service import QuoteExpired, QuoteNotFound, issue_policy
+from backend.app.services.duplicate_check import DuplicateProductError
+from backend.app.services.issuance_service import QuoteExpired, QuoteNotFound, issue_basket
 from backend.app.settings import Settings
 from insurance_core.issuance.policy import IssuanceError
 from insurance_core.issuance.signing import signature_matches
 
 router = APIRouter(prefix="/policies", tags=["policies"])
 
+# The direct-issuance route lives on its OWN router, included by main.py only when
+# PAYMENT_MODE=simulated -- so with PAYMENT_MODE=paystack the route doesn't exist at all (404, not
+# a 403 from inside the handler), and it vanishes from /docs too. Kept separate from `router` so
+# nothing here ever mutates a router shared across the many app instances the test suite creates.
+simulated_router = APIRouter(prefix="/policies", tags=["policies"])
 
-@router.post("", response_model=PolicyOut, status_code=201)
+
+@simulated_router.post("", response_model=list[PolicyOut], status_code=201)
 def post_policy(policy_in: PolicyIn, db: Session = Depends(get_db), settings: Settings = Depends(get_settings),
                 bundle: dict = Depends(get_bundle)):
-    """SIMULATED-payment issuance, for tests and offline demos only. With PAYMENT_MODE=paystack this is
-    switched off: policies are issued only after Paystack confirms payment (see /payments)."""
-    if settings.payment_mode != "simulated":
-        raise HTTPException(403, "direct issuance is disabled; pay via POST /payments/initialize")
+    """SIMULATED-payment issuance, for tests and offline demos only: any payment_reference is
+    accepted, no Paystack call is made. Accepts the same basket shape real payments do."""
+    items = [item.model_dump() for item in policy_in.items]
     try:
-        policy = issue_policy(db, settings, bundle, policy_in.quote_id, policy_in.product_code,
-                              policy_in.payment_plan, policy_in.payment_reference)
+        policies = issue_basket(db, settings, bundle, policy_in.quote_id, items, policy_in.payment_reference)
     except QuoteNotFound:
         raise HTTPException(404, "quote not found")
     except QuoteExpired:
         raise HTTPException(410, "this quote has expired; please request a new one")
+    except DuplicateProductError as e:
+        raise HTTPException(409, str(e))
     except IssuanceError as e:
         raise HTTPException(422, str(e))
-    return policy_out(policy, settings)
+    return [policy_out(p, settings) for p in policies]
 
 
 def _policy_for_holder(db: Session, settings: Settings, policy_number: str, s: str):

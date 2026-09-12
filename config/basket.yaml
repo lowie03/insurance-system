@@ -1,0 +1,12 @@
+version: basket-v2
+source: illustrative
+
+max_items: 5
+
+# A basket may contain at most one product per group: they are alternatives, not add-ons.
+# Named (not just listed) because the name is stored on the policy itself (policies.exclusive_group),
+# so the database can enforce "at most one active policy per group per quote" directly.
+# health: pick one tier. motor: comprehensive already includes third-party.
+mutually_exclusive_groups:
+  health: [HIN, HFM, HMC]
+  motor: [MTP, MCP]

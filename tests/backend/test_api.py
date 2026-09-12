@@ -43,10 +43,11 @@ def test_bad_profiles_are_rejected(client, customers, change, message):
 
 def test_full_flow_quote_issue_verify_download(client, customers):
     quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
-    response = client.post("/policies", json={"quote_id": quote["quote_id"], "product_code": "HCN",
+    response = client.post("/policies", json={"quote_id": quote["quote_id"],
+                                              "items": [{"product_code": "HCN"}],
                                               "payment_reference": "SIM-0001"})
     assert response.status_code == 201
-    policy = response.json()
+    policy = response.json()[0]
     assert policy["policy_number"].startswith("NGI-HCN-")
     assert is_well_formed(policy["policy_number"])
     assert (policy["payment_plan"], policy["payment_ngn"], policy["total_ngn"]) == ("monthly", 2_590, 31_080)
@@ -66,9 +67,63 @@ def test_full_flow_quote_issue_verify_download(client, customers):
     assert client.get(f"/policies/{number}/certificate.pdf", params={"s": "wrong"}).status_code == 404
 
 
+def test_basket_preview_combines_pricing_without_saving_anything(client, customers):
+    quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
+    response = client.post(f"/quotes/{quote['quote_id']}/basket",
+                           json={"items": [{"product_code": "HCN"}, {"product_code": "HMC"},
+                                          {"product_code": "SHP"}]})
+    assert response.status_code == 200
+    basket = response.json()
+    assert {l["product"] for l in basket["lines"]} == {"HCN", "HMC", "SHP"}
+    assert basket["first_payment_ngn"] == pytest.approx(2_590 + 4_810 + 15_000)
+    assert basket["total_annual_ngn"] == pytest.approx(31_080 + 57_750 + 15_000)
+    # a preview never writes anything: the same quote can be previewed again with a different basket
+    again = client.post(f"/quotes/{quote['quote_id']}/basket", json={"items": [{"product_code": "SHP"}]})
+    assert again.status_code == 200
+
+
+def test_basket_issuance_yields_one_policy_per_product(client, customers):
+    quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
+    response = client.post("/policies", json={"quote_id": quote["quote_id"],
+                                              "items": [{"product_code": "HCN"}, {"product_code": "SHP"}],
+                                              "payment_reference": "SIM-BASKET-1"})
+    assert response.status_code == 201
+    policies = response.json()
+    assert {p["product_code"] for p in policies} == {"HCN", "SHP"}
+    assert len({p["policy_number"] for p in policies}) == 2          # distinct numbers
+    for p in policies:
+        pdf = client.get(f"/policies/{p['policy_number']}/certificate.pdf", params={"s": p["signature"]})
+        assert pdf.content.startswith(b"%PDF")
+
+
+def test_buying_the_same_product_twice_from_one_quote_is_refused(client, customers):
+    quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
+    body = {"quote_id": quote["quote_id"], "items": [{"product_code": "HCN"}]}
+    first = client.post("/policies", json={**body, "payment_reference": "SIM-DUP-1"})
+    assert first.status_code == 201
+
+    second = client.post("/policies", json={**body, "payment_reference": "SIM-DUP-2"})
+    assert second.status_code == 409
+    assert "already has an active policy" in second.json()["detail"]
+
+
+def test_buying_a_group_alternative_after_the_original_is_refused(client, customers):
+    # NG-SYN-00224: income 845,000/month, both HFM and HIN (same mutually-exclusive group) recommended.
+    quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00224")).json()
+    first = client.post("/policies", json={"quote_id": quote["quote_id"], "items": [{"product_code": "HFM"}],
+                                           "payment_reference": "SIM-GROUP-1"})
+    assert first.status_code == 201
+
+    conflict = client.post("/policies", json={"quote_id": quote["quote_id"], "items": [{"product_code": "HIN"}],
+                                              "payment_reference": "SIM-GROUP-2"})
+    assert conflict.status_code == 409
+    assert "conflicts with HFM" in conflict.json()["detail"]
+
+
 def test_ineligible_product_is_refused(client, customers):
     quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
-    response = client.post("/policies", json={"quote_id": quote["quote_id"], "product_code": "MTP",
+    response = client.post("/policies", json={"quote_id": quote["quote_id"],
+                                              "items": [{"product_code": "MTP"}],
                                               "payment_reference": "SIM-0002"})
     assert response.status_code == 422
     assert "requires a vehicle" in response.json()["detail"]
@@ -76,18 +131,20 @@ def test_ineligible_product_is_refused(client, customers):
 
 def test_same_payment_twice_gives_the_same_policy(client, customers):
     quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
-    body = {"quote_id": quote["quote_id"], "product_code": "SHP", "payment_reference": "SIM-0003"}
+    body = {"quote_id": quote["quote_id"], "items": [{"product_code": "SHP"}], "payment_reference": "SIM-0003"}
     first, second = client.post("/policies", json=body).json(), client.post("/policies", json=body).json()
-    assert first["policy_number"] == second["policy_number"]
+    assert first[0]["policy_number"] == second[0]["policy_number"]
 
-    reused = client.post("/policies", json={**body, "product_code": "HCN"})     # same payment, other product
+    # same payment reference, different basket -> refused (not silently swapped for a new policy)
+    reused = client.post("/policies", json={**body, "items": [{"product_code": "HCN"}]})
     assert reused.status_code == 422
 
 
 def test_expired_quote_is_refused(tmp_path, customers):
     with make_client(tmp_path, quote_valid_hours=-1) as client:   # every quote is born expired
         quote = client.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
-        response = client.post("/policies", json={"quote_id": quote["quote_id"], "product_code": "HCN",
+        response = client.post("/policies", json={"quote_id": quote["quote_id"],
+                                                  "items": [{"product_code": "HCN"}],
                                                   "payment_reference": "SIM-0004"})
         assert response.status_code == 410
 
@@ -101,7 +158,7 @@ def test_objective_2_issuance_time_over_http(client, customers):
         if quote["refer_to_broker"]:
             continue
         policy = client.post("/policies", json={"quote_id": quote["quote_id"],
-                                                "product_code": quote["recommendations"][0]["product"],
+                                                "items": [{"product_code": quote["recommendations"][0]["product"]}],
                                                 "payment_reference": f"SIM-T{i}"})
         assert policy.status_code == 201
         timings.append(float(policy.headers["X-Process-Time"]))
