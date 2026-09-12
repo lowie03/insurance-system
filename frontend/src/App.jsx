@@ -5,6 +5,7 @@ import PaymentResult from "./pages/PaymentResult";
 import ProfileForm from "./pages/ProfileForm";
 import Recommendations from "./pages/Recommendations";
 import VerifyPolicy from "./pages/VerifyPolicy";
+import BrokerQueue from "./pages/BrokerQueue";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/payment" element={<PaymentResult />} />
         <Route path="/verify/:policyNumber" element={<VerifyPolicy />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/broker" element={<BrokerQueue />} />
       </Routes>
     </BrowserRouter>
   );

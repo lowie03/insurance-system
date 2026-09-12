@@ -98,10 +98,17 @@ export default function Recommendations() {
         </div>
       ) : (
         <div>
-          <Notice tone="warn" title="Nothing here fits your budget right now">
-            Everything available costs more than we think you can comfortably afford. A broker can point
-            you towards a subsidised state health scheme instead.
-          </Notice>
+          {/* When the referral notice above already explains this, don't say it twice. */}
+          {refer_to_broker ? (
+            <p className="text-ink-soft">
+              Nothing on our list is affordable for you at the moment, so there's nothing to select here.
+            </p>
+          ) : (
+            <Notice tone="warn" title="Nothing here fits your budget right now">
+              Everything available costs more than we think you can comfortably afford. A broker can point
+              you towards a subsidised state health scheme instead.
+            </Notice>
+          )}
         </div>
       )}
 

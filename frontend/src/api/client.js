@@ -25,13 +25,16 @@ function readDetail(detail) {
   return null;
 }
 
-async function request(path, { method = "GET", body, signal } = {}) {
+async function request(path, { method = "GET", body, signal, brokerToken } = {}) {
   let response;
   try {
     response = await fetch(`${BASE}${path}`, {
       method,
       signal,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(brokerToken ? { "X-Broker-Token": brokerToken } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (cause) {
@@ -62,4 +65,17 @@ export const api = {
   recheckPayment: (reference) => request(`/payments/${reference}/verify`, { method: "POST" }),
   verifyPolicy: (policyNumber, signature) =>
     request(`/verify/${encodeURIComponent(policyNumber)}?s=${encodeURIComponent(signature)}`),
+
+  // Broker routes. The token is held in the page, never stored, and sent as a header.
+  brokerQueue: (brokerToken, { kind, limit = 20, offset = 0 } = {}) => {
+    const query = new URLSearchParams({ limit, offset });
+    if (kind) query.set("kind", kind);
+    return request(`/broker/queue?${query}`, { brokerToken });
+  },
+  resolveReferral: (brokerToken, quoteId, body) =>
+    request(`/broker/referrals/${quoteId}/resolve`, { method: "POST", body, brokerToken }),
+  resolvePayment: (brokerToken, reference, body) =>
+    request(`/broker/payments/${encodeURIComponent(reference)}/resolve`, { method: "POST", body, brokerToken }),
+  cancelPolicy: (brokerToken, policyNumber, body) =>
+    request(`/broker/policies/${encodeURIComponent(policyNumber)}/cancel`, { method: "POST", body, brokerToken }),
 };
