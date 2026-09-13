@@ -5,8 +5,11 @@ data/raw/
 artifacts/models/
 *.joblib
 
-# Secrets: never committed
-.env
+# Secrets: never committed. Covers .env, .env.local, .env.production, etc. everywhere in the repo
+# (both backend/ and frontend/) -- but .env.example files are templates with no real values, so
+# those stay tracked.
+.env*
+!.env.example
 *signing_key*
 
 # Runtime data
