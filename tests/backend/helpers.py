@@ -16,12 +16,12 @@ MODEL_PRODUCTS = ["MTP", "MCP", "HIN", "HFM", "TRV", "HCN", "SHP"]
 
 
 def make_client(tmp_path, **overrides) -> TestClient:
-    """A fresh app with its own temporary database and PDF folder. Simulated payments unless overridden."""
+    """A fresh app with its own temporary database. Certificates live in the database itself, not
+    on disk, so no PDF folder is needed. Simulated payments unless overridden."""
     if not MODEL_PATH.exists():
         pytest.skip("no trained model: run python training/train_recommender.py")
     settings = Settings(**{"_env_file": None, "policy_signing_key": TEST_KEY, "broker_api_token": BROKER_TEST_TOKEN,
                            "database_url": f"sqlite:///{tmp_path / 'test.db'}",
-                           "pdf_storage_dir": tmp_path / "policies",
                            "payment_mode": "simulated", **overrides})
     return TestClient(create_app(settings))
 

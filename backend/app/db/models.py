@@ -1,5 +1,5 @@
 """Database tables."""
-from sqlalchemy import JSON, Float, ForeignKey, Index, Integer, String, UniqueConstraint, text
+from sqlalchemy import JSON, Float, ForeignKey, Index, Integer, LargeBinary, String, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.db.session import Base
@@ -59,7 +59,11 @@ class Policy(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")
     signature: Mapped[str | None] = mapped_column(String(64))
     payment_reference: Mapped[str] = mapped_column(String(100), index=True)
-    pdf_path: Mapped[str | None] = mapped_column(String(300))
+    # The certificate itself (~5KB), not a path: Render's free tier has no persistent disk, so a
+    # path on the filesystem would break on every restart/redeploy/spin-down. A production system
+    # handling real volume should use object storage (e.g. S3) and keep only a key here instead --
+    # see docs/assumptions.md.
+    pdf_bytes: Mapped[bytes | None] = mapped_column(LargeBinary)
     created_at: Mapped[str] = mapped_column(String(32))
     # Set by a broker cancelling this policy. Once status != 'active' the partial unique index on
     # (quote_id, exclusive_group) no longer covers this row, so the group can be bought again.

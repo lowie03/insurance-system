@@ -4,11 +4,11 @@
   2. refuse expired quotes; refuse products already active on this quote (Issue 1); return the
      existing policies if this payment reference was already used for the SAME basket
   3. re-run recommend() and re-validate/price the whole basket (insurance_core.basket)
-  4. in ONE transaction: for each line, reserve a sequence number, build + sign the record, write
-     the PDF, save the policy, write the audit log. Any failure rolls EVERYTHING back (all-or-nothing).
+  4. in ONE transaction: for each line, reserve a sequence number, build + sign the record, store
+     the PDF bytes on the row, write the audit log. Any failure rolls EVERYTHING back (all-or-nothing) --
+     the certificate lives in the same row as the policy, so there's no separate file to clean up.
 """
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from sqlalchemy.exc import IntegrityError
@@ -59,9 +59,9 @@ def prepare_basket_selection(db: Session, bundle: dict, settings: Settings, quot
 
 
 def _issue_one_policy(db: Session, settings: Settings, quote, profile: dict, result: dict, line: dict,
-                      now: datetime, payment_reference: str) -> tuple[Policy, Path]:
-    """INSERT one policy row and write its PDF. Does NOT commit: the caller owns the transaction,
-    so several lines from one basket land in the database together or not at all."""
+                      now: datetime, payment_reference: str) -> Policy:
+    """INSERT one policy row, certificate bytes included. Does NOT commit: the caller owns the
+    transaction, so several lines from one basket land in the database together or not at all."""
     rec = next(r for r in result["recommendations"] if r["product"] == line["product"])
     option = {"plan": line["payment_plan"], "payment_ngn": line["payment_ngn"], "total_ngn": line["total_ngn"]}
 
@@ -75,21 +75,18 @@ def _issue_one_policy(db: Session, settings: Settings, quote, profile: dict, res
                                payment_reference=payment_reference, key=settings.signing_key_bytes)
     pdf = build_certificate(record, rec, quote.full_name, verify_url(settings, record),
                             versions_note=f"Model {result['model_version']}")
-    settings.pdf_storage_dir.mkdir(parents=True, exist_ok=True)
-    pdf_path = settings.pdf_storage_dir / f"{record['policy_number']}.pdf"
-    pdf_path.write_bytes(pdf)
 
     for field in ["policy_number", "premium_ngn", "payment_plan", "payment_ngn", "total_ngn",
                   "start_date", "end_date", "status", "signature"]:
         setattr(policy, field, record[field])
-    policy.pdf_path = str(pdf_path)
+    policy.pdf_bytes = pdf
 
     repository.log_event(db, "policy_issued", quote_id=quote.id, policy_number=record["policy_number"],
                          created_at=record["created_at"],
                          payload={"model_version": result["model_version"],
                                   "config_versions": result["config_versions"],
                                   "chosen": rec, "excluded": result["excluded"]})
-    return policy, pdf_path
+    return policy
 
 
 def issue_basket(db: Session, settings: Settings, bundle: dict, quote_id: str, items: list,
@@ -117,14 +114,9 @@ def issue_basket(db: Session, settings: Settings, bundle: dict, quote_id: str, i
                 raise IssuanceError(f"{line['product']}: the price changed since payment started "
                                     f"(paid ₦{expected:,.0f}, now ₦{line['payment_ngn']:,.0f})")
 
-    pdf_paths: list[Path] = []
     try:
-        policies = []
-        for line in basket["lines"]:
-            policy, pdf_path = _issue_one_policy(db, settings, quote, profile, result, line, now,
-                                                 payment_reference)
-            policies.append(policy)
-            pdf_paths.append(pdf_path)
+        policies = [_issue_one_policy(db, settings, quote, profile, result, line, now, payment_reference)
+                   for line in basket["lines"]]
         db.commit()
     except IntegrityError:
         # Two different races land here. (a) A concurrent, IDENTICAL request for this same
@@ -134,15 +126,11 @@ def issue_basket(db: Session, settings: Settings, bundle: dict, quote_id: str, i
         # this quote (the exclusive_group partial index, Issue 1's last line of defense): there is
         # nothing of OURS to return, so refuse this basket cleanly instead of raising.
         db.rollback()
-        for p in pdf_paths:
-            p.unlink(missing_ok=True)
         existing = repository.get_policies_by_payment_reference(db, payment_reference)
         if {p.product_code for p in existing} == requested_codes:
             return existing
         raise IssuanceError("a policy for this product was issued by another payment moments earlier")
     except Exception:
         db.rollback()
-        for p in pdf_paths:
-            p.unlink(missing_ok=True)           # don't leave certificates for policies that don't exist
         raise
     return policies

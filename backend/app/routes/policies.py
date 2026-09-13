@@ -1,7 +1,4 @@
-from pathlib import Path
-
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from backend.app.db import repository
@@ -61,6 +58,7 @@ def get_policy(policy_number: str, s: str, db: Session = Depends(get_db),
 def get_certificate(policy_number: str, s: str, db: Session = Depends(get_db),
                     settings: Settings = Depends(get_settings)):
     policy = _policy_for_holder(db, settings, policy_number, s)
-    if not policy.pdf_path or not Path(policy.pdf_path).exists():
+    if not policy.pdf_bytes:
         raise HTTPException(404, "certificate file missing")
-    return FileResponse(policy.pdf_path, media_type="application/pdf", filename=f"{policy_number}.pdf")
+    return Response(content=policy.pdf_bytes, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{policy_number}.pdf"'})

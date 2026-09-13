@@ -15,11 +15,34 @@ class Settings(BaseSettings):
     policy_signing_key: str                                   # REQUIRED: the app refuses to start without it
     verify_base_url: str = "http://localhost:5173/verify"     # where the QR code points (the frontend page)
     api_base_url: str = "http://localhost:8000"
-    pdf_storage_dir: Path = PROJECT_ROOT / "backend" / "storage" / "policies"
     model_path: Path = MODEL_PATH
     timezone: str = "Africa/Lagos"
     quote_valid_hours: int = 72
     frontend_origins: list[str] = ["http://localhost:5173"]
+
+    @field_validator("frontend_origins", mode="before")
+    @classmethod
+    def parse_frontend_origins(cls, value):
+        """A deployment (e.g. FRONTEND_ORIGINS=https://cover-xyz.vercel.app,http://localhost:5173
+        on Render) sets this as one comma-separated string, not JSON -- split it ourselves, trimming
+        whitespace and dropping empty entries, rather than requiring exact JSON-list syntax in an
+        env var. A Python-level list (the default, or one passed directly in tests) passes through."""
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def normalize_database_url(cls, value):
+        """Neon/Render-style Postgres URLs often arrive as postgres:// (the old libpq scheme) or a
+        bare postgresql:// with no driver -- SQLAlchemy 2 rejects the former outright and would
+        default the latter to psycopg2, which isn't installed here (we use psycopg 3). Rewrite
+        either to postgresql+psycopg://. SQLite URLs (the local default) pass through unchanged."""
+        if isinstance(value, str):
+            for prefix in ("postgres://", "postgresql://"):
+                if value.startswith(prefix):
+                    return "postgresql+psycopg://" + value[len(prefix):]
+        return value
 
     # Payments
     payment_mode: Literal["paystack", "simulated"] = "paystack"   # "simulated" = tests/offline demos only

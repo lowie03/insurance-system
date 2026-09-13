@@ -1,6 +1,6 @@
 """The whole flow over HTTP: quote -> issue -> verify -> download (simulated payments).
 
-Each test gets a fresh app with a temporary database and PDF folder, so tests never touch dev.db.
+Each test gets a fresh app with a temporary database, so tests never touch dev.db.
 """
 import statistics
 
@@ -65,6 +65,26 @@ def test_full_flow_quote_issue_verify_download(client, customers):
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content.startswith(b"%PDF")
     assert client.get(f"/policies/{number}/certificate.pdf", params={"s": "wrong"}).status_code == 404
+
+
+def test_certificate_survives_a_restart_with_the_same_database_file(tmp_path, customers):
+    """PDFs live in the database, not on disk (Render's free tier has no persistent disk): prove a
+    certificate is still servable from a SECOND app instance pointed at the same database file,
+    rather than relying on anything held in the first process's memory."""
+    db_url = f"sqlite:///{tmp_path / 'restart.db'}"
+    with make_client(tmp_path, database_url=db_url) as first:
+        quote = first.post("/quotes", json=quote_body(customers, "NG-SYN-00021")).json()
+        policy = first.post("/policies", json={"quote_id": quote["quote_id"],
+                                               "items": [{"product_code": "HCN"}],
+                                               "payment_reference": "SIM-RESTART-1"}).json()[0]
+
+    # A brand new app/engine/session factory against the SAME file -- nothing carried over in memory.
+    with make_client(tmp_path, database_url=db_url) as second:
+        pdf = second.get(f"/policies/{policy['policy_number']}/certificate.pdf",
+                         params={"s": policy["signature"]})
+        assert pdf.status_code == 200
+        assert pdf.headers["content-type"] == "application/pdf"
+        assert pdf.content.startswith(b"%PDF")
 
 
 def test_basket_preview_combines_pricing_without_saving_anything(client, customers):

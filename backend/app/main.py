@@ -29,7 +29,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.bundle = load_bundle(settings.model_path)
         engine, app.state.session_factory = make_session_factory(settings.database_url)
         Base.metadata.create_all(engine)        # dev convenience; Alembic migrations replace this later
-        settings.pdf_storage_dir.mkdir(parents=True, exist_ok=True)
         paystack = (PaystackClient(settings.paystack_secret_key, settings.paystack_base_url)
                     if settings.payment_mode == "paystack" else None)
         app.state.paystack = paystack

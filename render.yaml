@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: insurance-system-api
+    runtime: python
+    plan: free
+    region: oregon
+    # requirements.txt pins exact versions (regenerate with `pip freeze --exclude-editable` after
+    # any dependency change, on the same Python version as .python-version) -- installing from it
+    # rather than re-resolving pyproject's loose bounds is the whole point of pinning at all.
+    # The model file is gitignored (artifacts/models/), so the build has to produce it: the
+    # synthetic training CSV IS committed (data/synthetic/), so this runs from a clean checkout.
+    buildCommand: pip install -r requirements.txt && pip install -e . --no-deps && python training/train_recommender.py
+    startCommand: uvicorn backend.app.asgi:app --host 0.0.0.0 --port $PORT
+    envVars:
+      # Python version comes from .python-version at the repo root, not an env var here -- one
+      # source of truth, shared with the local venv (see .python-version).
+      # --- secrets: set these in the Render dashboard, never committed ---
+      - key: POLICY_SIGNING_KEY
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: BROKER_API_TOKEN
+        sync: false
+      - key: DATABASE_URL               # Neon connection string; postgres:// is rewritten automatically
+        sync: false
+      # --- not secret, but deployment-specific: set to real values in the dashboard ---
+      - key: API_BASE_URL               # this service's own Render URL, e.g. https://insurance-system-api.onrender.com
+        sync: false
+      - key: VERIFY_BASE_URL            # the Vercel frontend's /verify page, e.g. https://cover-xyz.vercel.app/verify
+        sync: false
+      - key: PAYSTACK_CALLBACK_URL      # the Vercel frontend's /payment page, e.g. https://cover-xyz.vercel.app/payment
+        sync: false
+      - key: FRONTEND_ORIGINS           # comma-separated; e.g. https://cover-xyz.vercel.app
+        sync: false
+      # --- safe defaults: change only if you mean to ---
+      - key: PAYMENT_MODE
+        value: paystack
+      - key: ALLOW_LIVE_KEYS
+        value: "false"

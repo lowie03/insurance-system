@@ -40,7 +40,24 @@ Fixing this properly needs real identity: either accounts (login before quoting)
 customer key collected at quote time (e.g. verified phone number) that quotes can be looked up
 by. Until then, this is a conscious gap, not a bug.
 
-## `dev.db` and PDF storage live outside `~/Documents`
+## Certificates live in the database, not on disk
+
+`Policy.pdf_bytes` holds the certificate itself (a `LargeBinary` column, ~5KB per policy), not a
+path to a file on disk. This is specifically because Render's free web service tier has an
+ephemeral filesystem — wiped on every restart, redeploy, and spin-down after idling — and can't
+attach a persistent disk, so anything written to local disk would vanish. Storing the bytes
+directly in the same row as the policy also means issuance stays genuinely all-or-nothing: a
+transaction rollback discards the certificate together with the policy, with no separate file to
+clean up on failure (the old path-on-disk design needed an explicit unlink-on-rollback step; this
+doesn't).
+
+This suits a prototype at this volume (a few KB per policy, no real traffic), but doesn't scale: a
+production system issuing many policies should use object storage (e.g. S3 or R2) for the PDF
+itself, with the database holding only a key/URL — not the database doing double duty as a file
+store. Swapping this in later means changing `_issue_one_policy()` and the certificate route; the
+`Policy` row's shape (one `pdf_bytes`-or-`pdf_key` column) stays the same either way.
+
+## `dev.db` lives outside `~/Documents`
 
 This project's checkout sits under `~/Documents`, which has iCloud's "Desktop & Documents Folders"
 sync enabled. That sync daemon intermittently denies writes to freshly created files (and the
@@ -49,11 +66,12 @@ this directly as `sqlite3.OperationalError: attempt to write a readonly database
 `POST /quotes`. It's the same underlying issue as the earlier "hidden .pth file" venv problem: iCloud
 File Provider interfering with generated files, not a bug in the app.
 
-Fix: `DATABASE_URL` and `PDF_STORAGE_DIR` in `.env` point at
-`~/Library/Application Support/insurance-system/` instead of the project folder — `~/Library` is not
-iCloud-synced. `.env.example` documents the pattern for setting this up elsewhere. If you ever see
-this error again, it means something is writing inside the synced project tree; move it out the same
-way.
+Fix: `DATABASE_URL` in `.env` points at `~/Library/Application Support/insurance-system/` instead
+of the project folder — `~/Library` is not iCloud-synced. `.env.example` documents the pattern for
+setting this up elsewhere. This only matters for local development: a real deployment's database is
+Neon Postgres, not a local SQLite file, so it's never exposed to this class of bug at all. If you
+ever see this error again locally, it means something is writing inside the synced project tree;
+move it out the same way.
 
 ## `dev.db` must be recreated after the basket-checkout change
 
