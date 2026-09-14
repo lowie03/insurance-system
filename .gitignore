@@ -31,4 +31,5 @@ dist/
 # OS / editor
 .DS_Store
 .vscode/*
-!.vscode/settings.jsonbuild/
+!.vscode/settings.json
+build/

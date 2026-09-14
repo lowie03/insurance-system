@@ -1,9 +1,9 @@
 """Backend settings, read from environment variables or the .env file in the project root."""
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from insurance_core.settings import MODEL_PATH, PROJECT_ROOT
 
@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     model_path: Path = MODEL_PATH
     timezone: str = "Africa/Lagos"
     quote_valid_hours: int = 72
-    frontend_origins: list[str] = ["http://localhost:5173"]
+    # NoDecode: pydantic-settings normally tries to json.loads() an env var for any "complex"
+    # (container) field BEFORE any validator runs -- which crashes outright on a plain string like
+    # FRONTEND_ORIGINS=https://cover-xyz.vercel.app (not valid JSON). NoDecode skips that, so the
+    # raw string actually reaches parse_frontend_origins below.
+    frontend_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
 
     @field_validator("frontend_origins", mode="before")
     @classmethod
