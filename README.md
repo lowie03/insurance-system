@@ -9,9 +9,6 @@ what may actually be offered, what it costs, and whether the person can afford i
 carries a reason, and every recommendation and issuance is written to an audit log with the model and
 config versions that produced it.
 
-Built as a final-year computer science project. **The certificates it issues are watermarked
-prototypes and are not valid insurance contracts.**
-
 ---
 
 ## What it does
